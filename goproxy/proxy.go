@@ -197,20 +197,12 @@ func (p *Proxy) ClientConnNum() int32 {
 	return atomic.LoadInt32(&p.clientConnNum)
 }
 
-func (p *Proxy) ForwardToUpstream(ctx *Context, upStream ForwardUpstream) *http.Response {
+func (p *Proxy) ForwardToUpstream(ctx *Context, upStream ForwardUpstream, body []byte) *http.Response {
 	originReq := ctx.Req
 	originURL := originReq.URL.String() // 原URL
 
 	log.Printf("forward %s => %s\n", originURL, upStream.Address)
-	bodyByte, err := ioutil.ReadAll(originReq.Body)
-
-	if err != nil {
-		log.Print("Error: ", err)
-		return nil
-	}
-
-	newRequest, err := http.NewRequest(originReq.Method, originURL, strings.NewReader(string(bodyByte)))
-
+	newRequest, err := http.NewRequest(originReq.Method, originURL, strings.NewReader(string(body)))
 	if err != nil {
 		log.Print("Error: ", err)
 		return nil
@@ -265,13 +257,17 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 	}
 
 	// 转发到上游代理
-	for _, upstream := range p.upstream {
-		go p.ForwardToUpstream(ctx, upstream)
-	}
 
+	var bodyContent []byte
 	newReq := new(http.Request)
 	*newReq = *ctx.Req
 	newReq.Header = CloneHeader(newReq.Header)
+	var err error
+	newReq.Body, bodyContent, err = CloneBody(ctx.Req.Body)
+	if err != nil {
+		log.Print("Error: ", err)
+		return
+	}
 	removeConnectionHeaders(newReq.Header)
 	for _, item := range hopHeaders {
 		if newReq.Header.Get(item) != "" {
@@ -290,6 +286,9 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 		}
 	}
 	responseFunc(resp, err)
+	for _, upstream := range p.upstream {
+		go p.ForwardToUpstream(ctx, upstream, bodyContent)
+	}
 }
 
 // HTTP转发
