@@ -266,7 +266,7 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 
 	// 转发到上游代理
 	for _, upstream := range p.upstream {
-		p.ForwardToUpstream(ctx, upstream)
+		go p.ForwardToUpstream(ctx, upstream)
 	}
 
 	newReq := new(http.Request)
